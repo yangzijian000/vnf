@@ -121,6 +121,7 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
         def run_cplex(self):
             self.Vnf2server()
             P = ['in','proxy','firewall','ids','out']
+            W = [1550,1300]#光路可选用波长的集合
             mdl = CpoModel()
             ym = integer_var_list(self.getlenforvnf(),0,1,'ym')
             #若第 m 个 vnf 是被业务所使用，则 y m =1 ；否则 y m =0
@@ -132,20 +133,23 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
                     Z_t_n_s[i].append(integer_var_list(len(self.nodelist),0,1,'Z_t_n_s'))
             Amp = []
             # 若第m个vnf的类型还是属于p时,则为1，否则为0
-            for node in self.nodelist:
-                for vnf in node.pesudoswitchdict.values():
-                    if vnf.name in P:
-                        Amp.append(1)
+            for m in range(self.getlenforvnf()):
+                Amp.append([])
+                for p in P:
+                    if self.vnf2server[m].name == p:
+                        Amp[m].append(1)
                     else:
-                        Amp.append(0)
+                        Amp[m].append(0)
             g_t_n_p = []
             # 若第t个业务的第n个网络服务链节点所需的vnf类型为p时，则为1，否则为0
-            for i,t in enumerate(self.trafficlist):
+            for t,traffic in enumerate(self.trafficlist):
                 g_t_n_p.append([])
-                for vnf in t.vnfsec:
-                    if vnf.name in P:
-                        g_t_n_p[i].append(1)
-                    else:g_t_n_p[i].append(0)
+                for n,vnf in enumerate(traffic.vnfsec):
+                    g_t_n_p[t].append([])
+                    for p in P:
+                        if vnf.name == p:
+                            g_t_n_p[t][n].append(1)
+                        else:g_t_n_p[t][n].append(0)
             x_t_n_m = []
             for i,t in enumerate(self.trafficlist):
                 x_t_n_m.append([])
@@ -177,7 +181,7 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
                             C_t_n1_n2_u_v_w[t][n1][n2].append([])
                             for v,node_v in enumerate(node_u.outnodedict.keys()):
                                 C_t_n1_n2_u_v_w[t][n1][n2][u].append([])
-                                C_t_n1_n2_u_v_w[t][n1][n2][u][v].append(integer_var_list(2,0,1,'C_t_n1_n2_u_v_w'))
+                                C_t_n1_n2_u_v_w[t][n1][n2][u][v].append(integer_var_list(len(W),0,1,'C_t_n1_n2_u_v_w'))
             O_u_v = []
             for u,node_u in enumerate(self.nodelist):
                 O_u_v.append([])
@@ -195,24 +199,58 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
             for m in range(self.getlenforvnf()):
                 beta_vnf = []
                 for t,traffic in self.trafficlist:
-                    for n,traffic_node in traffic.vnfsec:
+                    for n,traffic_node in enumerate(traffic.vnfsec):
                         beta_vnf.append(times(x_t_n_m[t][n][m],traffic.bandwidth))
                 mdl.add(mdl.sum(beta_vnf)<=self.vnf2server[m].pro_capacity)
         # 约束式(3):
             for t,traffic in enumerate(self.trafficlist):
-                for n,traffic_node in traffic.vnfsec:
+                for n, traffic_node in enumerate(traffic.vnfsec):
                     Sum = [x_t_n_m[t][n][m] for m in range(self.getlenforvnf())]
                     mdl.add(mdl.sum(Sum)==1)
         # 约束式(4):
             for m in range(self.getlenforvnf()):
                 Sum = []
                 for t,traffic in enumerate(self.trafficlist):
-                    for n,traffic_node in traffic.vnfsec:
+                    for n, traffic_node in enumerate(traffic.vnfsec):
                         Sum.append(x_t_n_m[t][n][m])
                 mdl.add(ym[m]<=mdl.sum(Sum)<=ym[m]*INFINITY)
         # 约束式(5):
+            for t,traffic in enumerate(self.trafficlist):
+                for n, traffic_node in enumerate(traffic.vnfsec):
+                    for m in range(self.getlenforvnf()):
+                        Sum = [Amp[m][p]*g_t_n_p[t][n][p] for p,vnf_type in enumerate(P)]
+                        mdl.add(x_t_n_m[t][n][m]<=mdl.sum(Sum))
+        # 约束式(6):
+            for t,traffic in enumerate(self.trafficlist):
+                for n1, vnf in traffic.vnfsec:
+                    for n2, n1_vnf in enumerate(traffic.vnfsec[n1 + 1]):
+                        for u,node_u in enumerate(self.nodelist):
+                            for v, node_v in enumerate(node_u.outnodedict.keys()):
+                                Sum = [C_t_n1_n2_u_v_w[t][n1][n2][u][v][w] for w,wave in W]
+                                mdl.add(mdl.sum(Sum)<=1)
+        # 约束式(7):
+            for w,wave in enumerate(W):
+                for u, node_u in enumerate(self.nodelist):
+                    for v, node_v in enumerate(node_u.outnodedict.keys()):
+                        Sum = []
+                        beta_u_v_w = int(node_u.outnodedict[node_v][1])
+                        for t, traffic in enumerate(self.trafficlist):
+                            for n1, vnf in traffic.vnfsec:
+                                for n2, n1_vnf in enumerate(traffic.vnfsec[n1 + 1]):
+                                    Sum.append(times(C_t_n1_n2_u_v_w[t][n1][n2][u][v][w],traffic.bandwidth))
+                        mdl.add(mdl.sum(Sum)<= beta_u_v_w)
+        #约束式(8):
+            for u, node_u in enumerate(self.nodelist):
+                for v, node_v in enumerate(node_u.outnodedict.keys()):
+                    Sum = []
+                    for t,traffic in enumerate(self.trafficlist):
+                        for n1, vnf in traffic.vnfsec:
+                            for n2, n1_vnf in enumerate(traffic.vnfsec[n1 + 1]):
+                                for w,wave in enumerate(W):
+                                    Sum.append(C_t_n1_n2_u_v_w[t][n1][n2][u][v][w])
+                    mdl.add(O_u_v[u][v]<=mdl.sum(Sum)<=O_u_v[u][v]*INFINITY)
+        # 约束式(9):
             
-
         def Vnf2server(self):
             self.vnf2server ={}
             M = 0
