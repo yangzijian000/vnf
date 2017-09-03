@@ -197,4 +197,8 @@ def yen_ksp(G, source, target, K=1):
         else:
             break
 
-    return A
+    if len(A) == 1:
+        paths = [A[0],A[0]]
+        return paths
+    else:
+        return A
