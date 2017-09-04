@@ -169,8 +169,8 @@ int main(int argc, char const *argv[])
 		IloIntVar3dArray Z_t_n_s(env,traffic_size);
 		for (int t = 0; t != traffic_size; ++t)
 		{
-			Z_t_n_s[t] = IloIntVar2dArray(env,trafficlist[t].vnfsec.size());
-			for (int n = 0; n != trafficlist[t].vnfsec.size(); ++n)
+			Z_t_n_s[t] = IloIntVar2dArray(env,trafficlist[t]->vnfsec.size());
+			for (int n = 0; n != trafficlist[t]->vnfsec.size(); ++n)
 			{
 				Z_t_n_s[t][n] = IloIntVarArray(env,nodelist.size(),0,1);
 			}
@@ -196,13 +196,13 @@ int main(int argc, char const *argv[])
 		//若第t个业务的第n个网络服务链节点所需的vnf类型为p时，则为1，否则为0
 		for (int t = 0; t != traffic_size; ++t)
 		{
-			g_t_n_p[t] = IloInt2dArray(env,trafficlist[t].vnfsec.size());
-			for (int n = 0; n != trafficlist[t].vnfsec.size(); ++n)
+			g_t_n_p[t] = IloInt2dArray(env,trafficlist[t]->vnfsec.size());
+			for (int n = 0; n != trafficlist[t]->vnfsec.size(); ++n)
 			{
 				g_t_n_p[t][n] = IloIntArray(env,vnf_type.size(),0,1);
 				for (int p = 0; p != vnf_type.size(); ++p)
 				{
-					if (trafficlist[t][n] == vnf_type[p])
+					if (trafficlist[t]->vnfsec[n] == vnf_type[p])
 					{
 						g_t_n_p[t][n][p] = 1;
 					}
@@ -215,8 +215,8 @@ int main(int argc, char const *argv[])
 		}
 		IloIntVar3dArray x_t_n_m(env, traffic_size);
 		for(int t = 0; t != traffic_size; ++t)
-			x_t_n_m[t] = IloIntVar2dArray(env,trafficlist[t].vnfsec.size());
-			for(int n = 0; n != trafficlist[t].vnfsec.size(); ++n)
+			x_t_n_m[t] = IloIntVar2dArray(env,trafficlist[t]->vnfsec.size());
+			for(int n = 0; n != trafficlist[t]->vnfsec.size(); ++n)
 			{
 				x_t_n_m[t][n] = IloIntVarArray(env,middlebox_size,0,1);
 			}
@@ -226,7 +226,7 @@ int main(int argc, char const *argv[])
 		{
 			std::vector<std::vector<std::vector<std::map<int,IloIntVar2dArray>>>> traffic;
 			C_t_n1_n2_u_v_k_w.push_back(traffic);
-			for (int n1 = 0;n1 != trafficlist[t].vnfsec.size(), ++n1)
+			for (int n1 = 0;n1 != trafficlist[t]->vnfsec.size(), ++n1)
 			{
 				std::vector<std::vector<std::map<int,IloIntVar2dArray>>> n1_vnf;
 				C_t_n1_n2_u_v_k_w[t].push_back(n1_vnf);
@@ -265,7 +265,76 @@ int main(int argc, char const *argv[])
 		//                    构造约束                       //
 		///////////////////////////////////////////////////////
 		// 约束式(1):
+		int M = 0;
+		for (auto node : nodelist)
+		{
+			IloExpr cpu_constraints(env);
+			for (int m = 0;m != node->pesudoweitchdict.size();++m)
+			{
+				cpu_constraints +=  ym[M+m]*node->pesudoweitchdict[m].cpu_required;
+				model.add(cpu_constraints <= node->cpunum);
+			}
+			 
+		}
+		// 约束式(2):
+		for (int m =0; m != middlebox_size; ++m)
+		{
+			IloExpr beta_vnf(env);
+			for (int t = 0; t != traffic_size; ++t)
+			{
+				for (int n = 0; n != trafficlist[t]->vnfsec.size(); ++n)
+				{
+					beta_vnf += x_t_n_m[t][n][m] * trafficlist[t]->bandwidth;	
+				}
+			}
+			model.add(beta_vnf <= vnf2server[m]->pro_capacity);
+		}
+		// 约束式(3):
+		for (int t = 0; t != traffic_size; ++t)
+		{
+			for (int n = 0; n != trafficlist[t]->vnfsec.size(); ++n)
+			{
+				IloExpr Sum3(env);
+				for (int m = 0; m != middlebox_size; ++m)
+				{
+					Sum3 += x_t_n_m[t][n][m];
+				}
+				model.add(Sum3 == 1);
+			}
+		}
+		// 约束式(4):
+		for (int m = 0; m != middlebox_size; ++m)
+		{
+			IloExpr Sum4(env);
+			for (int t = 0; t != traffic_size; ++t)
+			{
+				for (int n = 0; n != trafficlist[t]->vnfsec.size(); ++n)
+				{
+					Sum4 += x_t_n_m[t][n][m];
+				}
+			}
+			model.add(ym[m] <= Sum4);
+			model.add(Sum4 <= ym[m]*INF);
+		}
+		// 约束式(5):
+		for (int t = 0; t != traffic_size; ++t)
+		{
+			for (int n = 0; n != trafficlist[t]->vnfsec.size(); ++n)
+			{
+				for (int m = 0;m != middlebox_size; ++m)
+				{
+					IloExpr Sum5(env);
+					for (int p = 0; p != vnf_type.size(); ++p)
+					{
+						Sum5 += Amp[m][p] * g_t_n_p[t][n][p];
+					}
+					model.add(x_t_n_m[t][n][m] <= Sum5);
+				}
+			}
+		}
+		// 约束式(6):
 		
+
 
 	}
 

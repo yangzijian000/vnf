@@ -6,6 +6,9 @@
 #include <vector>
 #include <iostream>
 #include <utility>
+
+#define INF 99999999
+
 class Traffic
 {
 public:
