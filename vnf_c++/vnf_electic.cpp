@@ -67,7 +67,7 @@ void Loaddata(std::vector<Server> &nodelist,std::vector<Traffic> &trafficlist,st
 		}
 		if (regex_search(line,reg2,r2))
 		{
-			text = r2.str();
+			std::string text = r2.str();
 		}
 		std::map<std::string,std::pair<int,int>> outnodedict;
 		for (sregex_iterator it(text.begin(),text.end(),reg3),end;it != end; ++it)
@@ -82,7 +82,7 @@ void Loaddata(std::vector<Server> &nodelist,std::vector<Traffic> &trafficlist,st
 		node->setoutnodedict(outnodedict);
 	}
 	while(getline(trafficfile,line)){
-		trafficinf = split(line,splittext1);
+		std::vector<string> trafficinf = split(line,splittext1);
 		const std::string srcnode = trafficinf[0];
 		const std::string dstnode = trafficinf[1];
 		ss << trafficinf[2];
@@ -92,13 +92,13 @@ void Loaddata(std::vector<Server> &nodelist,std::vector<Traffic> &trafficlist,st
 		trafficlist.push_back(*traffic);
 	}
 	while(getline(k_linkfile,line)){
-		k_link_inf = spilt(line,splittext2);
-		k_link_node = spilt(k_link_inf[0],splittext1);
+		std::vector<string> k_link_inf = spilt(line,splittext2);
+		std::vector<string> k_link_node = spilt(k_link_inf[0],splittext1);
 		ss << k_link_node[0];
 		ss >> int u;
 		ss << k_link_node[1];
 		ss >> int v;
-		k_link_1 = spilt(k_link_inf[1],splittext1);
+		std::vector<string> k_link_1 = spilt(k_link_inf[1],splittext1);
 		std::vector<int> k_link_1_int;
 		for (std::vector<k_link_1>::iterator i = k_link_1.begin(); i != k_link_1.end(); ++i)
 		{
@@ -106,7 +106,7 @@ void Loaddata(std::vector<Server> &nodelist,std::vector<Traffic> &trafficlist,st
 			ss >> int k_node;
 			k_link_1_int.push_back(k_node);
 		}
-		k_link_2 = spilt(k_link_inf[2],splittext1);
+		std::vector<string> k_link_2 = spilt(k_link_inf[2],splittext1);
 		std::vector<int> k_link_2_int;
 		for (std::vector<k_link_2>::iterator i = k_link_2.begin(); i != k_link_2.end(); ++i)
 		{
@@ -144,7 +144,18 @@ void Vnf_Server(std::vector<Server> &nodelist,std::vector<VNF *> &vnf2server){
 		}
 	}
 }
-
+int compute_beta_u_v_k_w(int u,int v,int k){
+	std::vector<int> *path = k_link[u][v][k];
+	std::vector<int> B;
+	for (std::vector<int>::iterator p = (*path).begin(); p != (*path).end()-1; ++p)
+	{
+		int b = nodelist[*p]->outnodedict[*(p+1)][1];
+		B.push_back(b);
+	}
+	std::sort(B.begin(),B.end());
+	int beta_u_v_k_w = B[0];
+	return beta_u_v_k_w;
+}
 
 int main(int argc, char const *argv[])
 {
@@ -392,7 +403,7 @@ int main(int argc, char const *argv[])
 					{
 						for (int w = 0; w != W.size(); ++w)
 						{
-							IloExpr Sum9(env);
+							IloExpr Sum8(env);
 							for (int v = 0; v != nodelist.size(); ++v)
 							{	
 								if (v == u)
@@ -401,10 +412,10 @@ int main(int argc, char const *argv[])
 								}
 								else
 								{
-									Sum9 += (C_t_n1_n2_u_v_k_w[t][n1][n2][u][v][k][w] - C_t_n1_n2_u_v_k_w[t][n1][n2][v][u][k][w]);
+									Sum8 += (C_t_n1_n2_u_v_k_w[t][n1][n2][u][v][k][w] - C_t_n1_n2_u_v_k_w[t][n1][n2][v][u][k][w]);
 								}
 							}
-							model.add(Sum9 == (Z_t_n_s[t][n1][u]-Z_t_n_s[t][n1+1][u]));
+							model.add(Sum8 == (Z_t_n_s[t][n1][u]-Z_t_n_s[t][n1+1][u]));
 						}
 					}
 				}
@@ -417,7 +428,47 @@ int main(int argc, char const *argv[])
 			{
 				for (int v = 0; v != nodelist.size(); ++v)
 				{
-					
+					if (v == u)
+					{
+						continue;
+					}
+					else
+					{
+						for (int k = 0; k != K_short_path; ++k)
+						{
+							IloExpr Sum9(env);
+							int beta_u_v_k_w = compute_beta_u_v_k_w(u,v,k);
+							for (int t = 0; t != traffic_size; ++t)
+							{
+								for (int n1 = 0; n1 != trafficlist[t]->vnfsec.size();++n1)
+								{
+									int n2 = 0;
+									Sum9 += C_t_n1_n2_u_v_k_w[t][n1][n2][u][v][k][w] * trafficlist[t]->bandwidth;
+								}
+							}
+							model.add(Sum9 <= beta_u_v_k_w);
+						}
+					}
+				}
+			}
+		}
+		// 约束式(10):
+		for (int u = 0; u != nodelist.size(); ++u)
+		{
+			for (int v = 0; v != nodelist[u]->outnodedict.size();++v)
+			{
+				IloExpr Sum10(env);
+				for (int U = 0; U != nodelist.size();++U)
+				{
+					for (int V = 0; V != nodelist.size(); ++V)
+						if (V == U)
+						{
+							continue;
+						}
+						else
+						{
+							if (link_map_uv(U,V,u,nodelist[u]->outnodedict[v]));
+						}
 				}
 			}
 		}
