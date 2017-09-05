@@ -333,9 +333,94 @@ int main(int argc, char const *argv[])
 			}
 		}
 		// 约束式(6):
-		
-
-
+		for (int t = 0; t != traffic_size; ++t)
+		{
+			for (int n = 0; n != trafficlist[t]->vnfsec.size(); ++n)
+			{
+				int M = 0;
+				for (int s = 0; s != nodelist.size(); ++s)
+				{
+					IloExpr Sum6(env);
+					for (int m = M; m != M + nodelist[s]->pesudoweitchdict.size(); ++m)
+					{
+						Sum6 += x_t_n_m[t][n][m];
+					}
+					model.add(Sum6 == Z_t_n_s[t][n][s]); 
+					M += nodelist[s]->pesudoweitchdict.size();
+				}
+			}
+		}
+		// 约束式(7):
+		for (int t = 0; t != traffic_size; ++t)
+		{
+			for (int n1 = 0; n1 != trafficlist[t]->vnfsec.size()-1; ++n1)
+			{
+				int n2 = 0;
+				IloExpr Sum7(env);
+				for (int u = 0; u != nodelist.size(); ++u)
+				{
+					for (int v = 0; v != nodelist.size(); ++v)
+					{
+						if (v == u)
+						{
+							continue;
+						}
+						else
+						{
+							for (int k = 0; k != K_short_path; ++k)
+							{
+								for (int w = 0; w != W.size(); ++W)
+								{
+									Sum7 += C_t_n1_n2_u_v_k_w[t][n1][n2][u][v][k][w];
+								}
+							}
+							model.add(Sum7 <= 1);
+						}
+					}
+				}
+			}
+		}
+		// 约束式(8):
+		for (int t  =0; t != traffic_size; ++t)
+		{
+			for (int n1 = 0; n1 != trafficlist[t]->vnfsec.size()-1; ++n1)
+			{
+				int n2 = 0;
+				for (int u = 0; u != nodelist.size(); ++u)
+				{
+					for (int k = 0; k != K_short_path; ++k)
+					{
+						for (int w = 0; w != W.size(); ++w)
+						{
+							IloExpr Sum9(env);
+							for (int v = 0; v != nodelist.size(); ++v)
+							{	
+								if (v == u)
+								{
+									continue;
+								}
+								else
+								{
+									Sum9 += (C_t_n1_n2_u_v_k_w[t][n1][n2][u][v][k][w] - C_t_n1_n2_u_v_k_w[t][n1][n2][v][u][k][w]);
+								}
+							}
+							model.add(Sum9 == (Z_t_n_s[t][n1][u]-Z_t_n_s[t][n1+1][u]));
+						}
+					}
+				}
+			}
+		}
+		// 约束式(9):
+		for (int w = 0; w != W.size(); ++w)
+		{
+			for (int u = 0; u != nodelist.size(); ++u)
+			{
+				for (int v = 0; v != nodelist.size(); ++v)
+				{
+					
+				}
+			}
+		}
 	}
 
 
