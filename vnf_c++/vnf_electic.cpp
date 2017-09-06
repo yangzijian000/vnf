@@ -2,6 +2,7 @@
 #include <fstream>
 #include <regex>
 #include <sstream>
+#include <cstdlib>
 #include <ilcplex/ilocplex.h>
 ILOSTLBEGIN
 typedef IloArray<IloIntVarArray> IloIntVar2dArray;
@@ -69,10 +70,11 @@ void Loaddata(std::vector<Server> &nodelist,std::vector<Traffic> &trafficlist,st
 		{
 			std::string text = r2.str();
 		}
-		std::map<std::string,std::pair<int,int>> outnodedict;
+		std::map<int,std::pair<int,int>> outnodedict;
 		for (sregex_iterator it(text.begin(),text.end(),reg3),end;it != end; ++it)
 		{
-			std::string outnodename = it->str(1);
+			ss << it->str(1);
+			ss >> int outnodename;
 			ss << it->str(2);
 			ss >> int distance;
 			ss << it->str(3);
@@ -144,19 +146,36 @@ void Vnf_Server(std::vector<Server> &nodelist,std::vector<VNF *> &vnf2server){
 		}
 	}
 }
-int compute_beta_u_v_k_w(int u,int v,int k){
-	std::vector<int> *path = k_link[u][v][k];
+int compute_beta_u_v_k_w(int u,int v,int k,,std::map<int,std::map<int,std::vector<std::vector<int>>>> &k_link){
+	std::vector<int> *path = &k_link[u][v][k];
 	std::vector<int> B;
 	for (std::vector<int>::iterator p = (*path).begin(); p != (*path).end()-1; ++p)
 	{
-		int b = nodelist[*p]->outnodedict[*(p+1)][1];
+		int b = nodelist[*p]->outnodedict[*(p+1)].second;
 		B.push_back(b);
 	}
 	std::sort(B.begin(),B.end());
 	int beta_u_v_k_w = B[0];
 	return beta_u_v_k_w;
 }
-
+bool link_map_uv(int U,int V,int u,int v,std::map<int,std::map<int,std::vector<std::vector<int>>>> &k_link){
+	std::vector<std::vector<int>> *paths = &k_link[U][V];
+	for (auto path : (*paths))
+	{
+		for (int i = 0; i != path.size()-1,++i)
+		{
+			if (u == path[i] && v == path[i+1])
+			{
+				return true;
+			}
+			else
+			{
+				continue;
+			}
+		}
+	}
+	return false;
+}
 int main(int argc, char const *argv[])
 {
 	IloEnv env;
@@ -437,10 +456,10 @@ int main(int argc, char const *argv[])
 						for (int k = 0; k != K_short_path; ++k)
 						{
 							IloExpr Sum9(env);
-							int beta_u_v_k_w = compute_beta_u_v_k_w(u,v,k);
+							int beta_u_v_k_w = compute_beta_u_v_k_w(u,v,k,k_link);
 							for (int t = 0; t != traffic_size; ++t)
 							{
-								for (int n1 = 0; n1 != trafficlist[t]->vnfsec.size();++n1)
+								for (int n1 = 0; n1 != trafficlist[t]->vnfsec.size()-1;++n1)
 								{
 									int n2 = 0;
 									Sum9 += C_t_n1_n2_u_v_k_w[t][n1][n2][u][v][k][w] * trafficlist[t]->bandwidth;
@@ -455,30 +474,109 @@ int main(int argc, char const *argv[])
 		// 约束式(10):
 		for (int u = 0; u != nodelist.size(); ++u)
 		{
-			for (int v = 0; v != nodelist[u]->outnodedict.size();++v)
+			int v = 0;
+			for (std::map<std::string, std::pair<std::string, int>>::iterator it = nodelist[u]->outnodedict.begin(); it != nodelist[u]->outnodedict.end();++it)
 			{
 				IloExpr Sum10(env);
 				for (int U = 0; U != nodelist.size();++U)
 				{
 					for (int V = 0; V != nodelist.size(); ++V)
+					{	
 						if (V == U)
 						{
 							continue;
 						}
 						else
 						{
-							if (link_map_uv(U,V,u,nodelist[u]->outnodedict[v]));
+							if (link_map_uv(U,V,u,it->first))
+							{
+								for ( int t = 0; t != traffic_size; ++t)
+								{
+									for (int n1 = 0; n1 != trafficlist[t]->vnfsec.size()-1; ++n1)
+									{
+										int n2 = 0;
+										for (int k = 0; k != K_short_path; ++k)
+										{
+											for (int w = 0; w != W.size(); ++w)
+											{
+												Sum10 += C_t_n1_n2_u_v_k_w[t][n1][n2][U][V][k][w];
+											}
+										}
+									}
+								}
+							}
 						}
+					}
 				}
+				model.add(O_u_v[u][v] <= Sum10);
+				model.add(Sum10 <= O_u_v[u][v]*INF);
+				++v;
 			}
 		}
+		// 约束式(11):
+		for (int t = 0; t != traffic_size; ++t)
+		{
+			int srcnode = atoi((trafficlist[t]->srcnode).c_str());
+			int dstnode = atoi((trafficlist[t]->dstnode).c_str());
+			int ingress = 0;
+			int egress = trafficlist[t]->vnfsec.size();
+			model.add(Z_t_n_s[t][ingress][srcnode] == 1);
+			model.add(Z_t_n_s[t][egress][dstnode] == 1);
+		}
+		// 目标函数:
+		int P_t = 35;
+		double P_I = 0.000015;
+		IloExpr Sum_B(env);
+		for (int t = 0;t != traffic_size; ++t)
+		{
+			IloExpr Sum_t_B(env);
+			int beta_t = trafficlist[t]->bandwidth;
+			for (int n1 = 0; n1 != trafficlist[t]->vnfsec.size()-1; ++n1)
+			{
+				int n2 = 0;
+				for (int U = 0; U != nodelist.size(); ++U)
+				{
+					for (int V = 0; V != nodelist.size(); ++V)
+					{
+						if (V == U)
+						{
+							continue;
+						}
+						else
+						{
+							for (int k = 0; k != K_short_path; ++k)
+							{
+								for (int w = 0; w != W.size(); ++w)
+								{
+									std::vector<std::vector<int>> *paths = &k_link[U][V];
+									int link_num = (*paths)[k].size();
+									Sum_t_B += C_t_n1_n2_u_v_k_w[t][n1][n2][U][V][k][w] * beta_t *link_num;
+								}
+							}
+						}
+					}
+				}
+			}
+			Sum_B += (Sum_t_B - beta_t);
+		}
+		IloExpr Sum_O(env);
+		for (int u = 0; u != nodelist.size(); ++u)
+		{
+			for (int v = 0; v != nodelist[u]->outnodedict.size(); ++v)
+			{
+				Sum_O += O_u_v[u][v];
+			}
+		}
+		model.add(IloMinimize(env,2*P_t*Sum_O+P_I*Sum_B));
+		if (!cplex.solve())
+		{
+			std::cout << cplex.getStatus() << std::endl;
+		}
 	}
-
-
-
-
-
-
-
+	catch (IloException & e)
+	{
+		std::cerr << e << std::endl;
+	}
+	env.end();
 	return 0;
 }
