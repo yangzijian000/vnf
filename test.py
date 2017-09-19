@@ -219,5 +219,7 @@ if __name__ == '__main__':
     a = [1,2,3,4,5]
     b = a[2]
     c = {0:1}
+    A = a[1:]
+    print(A)
     for  i,m in c.items():
         print(i,m)
