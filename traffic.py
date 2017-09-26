@@ -76,21 +76,12 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
 
         def addrouterButtonclicked(self):
             try:
-                self.nodelist.clear()
-                right_now_time = time.strftime('%m-%d_%H:%M', time.localtime(time.time()))
                 nodeinf = self.nodeinf.text()
                 pattert = re.compile(r'(\w+):(\d+)')
                 matchs = pattert.search(nodeinf)
                 nodename = matchs.group(1)
                 node_cpu_num = int(matchs.group(2))
                 node = Server(nodename,node_cpu_num)
-                innodeinf = self.innodeinf.text()
-                pattert = re.compile(r'(\w+):(\d+):(\d+)')
-                matchs = pattert.findall(innodeinf)
-                innodedict = {}
-                for match in matchs:
-                    innodedict[match[0]] = [int(match[1]),int(match[2])]
-                node.setinnodedict(innodedict)
                 outnodeinf = self.outnodeinf.text()
                 pattert = re.compile(r'(\w+):(\d+):(\d+)')
                 matchs = pattert.findall(outnodeinf)
@@ -99,14 +90,12 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
                     outnodedict[match[0]] = [int(match[1]),int(match[2])]
                 node.setoutnodedict(outnodedict)
                 self.nodelist.append(node)
-                routerdata = '添加了节点{},cpu数量为{},流入节点有:'.format(node.nodename,node.cpunum)
-                for innode in node.innodedict.keys():
-                    routerdata += '节点{},距离为{}，带宽为{};'.format(innode,node.innodedict[innode][0],node.innodedict[innode][1])
+                routerdata = '添加了节点{},cpu数量为{},'.format(node.nodename,node.cpunum)
                 routerdata += '流出节点有:'
                 for outnode in node.outnodedict.keys():
                     routerdata += '节点{},距离为{}，带宽为{};'.format(outnode,node.outnodedict[outnode][0],node.outnodedict[outnode][1])
                 self.routerdate.append(routerdata)
-                self.topofile.write(routerdata)
+                self.topofile.write(routerdata+'\r\n')
             except:
                 self.routerdate.append('添加错误，请重新添加！')
         def initTopo(self):
@@ -116,15 +105,19 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
                 for outnode,[distance,bandwitch] in node.outnodedict.items():
                     self.topoinfdict[str(node.nodename)][outnode] = [distance,bandwitch]
         def startButtonclicked(self):
-            self.topofile.close()
-            self.initTopo()
-            self.Loadtrafficfile()
-            self.run_cplex_electic()
+            try:
+                self.topofile.close()
+                self.initTopo()
+                for t in range(10, 160, 10):
+                    trafficsize = t
+                    self.Loadtrafficfile(trafficsize)
+                    self.run_cplex_electic()
+            except Exception as e:
+                print(e)
         def loaddataButtonclicked(self):
             self.nodelist.clear()
-            topofile = open('新建文本文档.txt')
+            topofile = open('新建文本文档.txt','r')
             pattern1 = re.compile(r'添加了节点(\w+),cpu数量为(\d+),')
-            pattern2 = re.compile(r'流入节点有:(\S+);流出')
             pattern3 = re.compile(r'流出节点有:(\S+)')
             for line in topofile:
                 matchs1 = pattern1.search(line)
@@ -132,25 +125,16 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
                     nodename = int(matchs1.group(1))
                     cpunum = int(matchs1.group(2))
                     node = Server(nodename, cpunum)
-                    matchs2 = pattern2.search(line)
-                    pattern4 = re.compile(r'节点(\w+),距离为(\d+)，带宽为(\d+)')
+                    matchs2 = pattern3.search(line)
+                    pattern4 = re.compile(r'节点(\w+),距离为(\d+),带宽为(\d+)')
                     matchs3 = pattern4.findall(matchs2.group())
-                    innodedict = {}
-                    for match in matchs3:
-                        innodedict[match[0]] = [int(match[1]), int(match[2])]
-                    node.setinnodedict(innodedict)
-                    matchs4 = pattern3.search(line)
-                    matchs5 = pattern4.findall(matchs4.group())
                     outnodedict = {}
-                    for match in matchs5:
+                    for match in matchs3:
                         outnodedict[match[0]] = [int(match[1]), int(match[2])]
                     node.setoutnodedict(outnodedict)
                     self.nodelist.append(node)
                     self.routerdate.append('读取日志成功！')
-                    routerdata = '添加了节点{},cpu数量为{},流入节点有:'.format(node.nodename, node.cpunum)
-                    for innode in node.innodedict.keys():
-                        routerdata += '节点{},距离为{}，带宽为{};'.format(innode, node.innodedict[innode][0],
-                                                                 node.innodedict[innode][1])
+                    routerdata = '添加了节点{},cpu数量为{},'.format(node.nodename, node.cpunum)
                     routerdata += '流出节点有:'
                     for outnode in node.outnodedict.keys():
                         routerdata += '节点{},距离为{}，带宽为{};'.format(outnode, node.outnodedict[outnode][0],
@@ -485,13 +469,13 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
         #     except Exception as e:
         #         print(e)
         #修改：分两步计算，第一步目标优化使得激活节点数最少：
-            y_t_s = [[mdl.integer_var(0, 1, name='y_t_s_{}_{}'.format(t,s)) for s, node_s in enumerate(self.nodelist)] for t,traffic in enumerate(self.trafficlist)]
-            try:
-                for s,node_s in enumerate(self.nodelist):
-                    for t, traffic in enumerate(self.trafficlist):
-                        Sum_s = mdl.sum([Z_t_n_s[t][n][s]  for n in range(len(traffic.vnfsec))])
-                        mdl.add(y_t_s[t][s] <= Sum_s)
-                        mdl.add(Sum_s  <= y_t_s[t][s] * 9999999)
+            # y_t_s = [[mdl.integer_var(0, 1, name='y_t_s_{}_{}'.format(t,s)) for s, node_s in enumerate(self.nodelist)] for t,traffic in enumerate(self.trafficlist)]
+            # try:
+            #     for s,node_s in enumerate(self.nodelist):
+            #         for t, traffic in enumerate(self.trafficlist):
+            #             Sum_s = mdl.sum([Z_t_n_s[t][n][s]  for n in range(len(traffic.vnfsec))])
+            #             mdl.add(y_t_s[t][s] <= Sum_s)
+            #             mdl.add(Sum_s  <= y_t_s[t][s] * 9999999)
 
 
 
@@ -508,22 +492,36 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
             #
             #                     obj.append(Z_t_n_s[t][n][u])
 
-                obj = mdl.sum([y_t_s[t][s] for t,traffic in enumerate(self.trafficlist) for s,node_s in enumerate(self.nodelist)])
-                mdl.add(mdl.minimize(obj))
-            except Exception as e:
-                print(e)
+            obj = mdl.sum(ym[m] for m in range(self.getlenforvnf()))
+            mdl.add(mdl.minimize(obj))
+            # except Exception as e:
+            #     print(e)
 
             ##############################################################################
             # Model solving
             ##############################################################################
             # Solve model
+
             try:
-                print("Solving model....")
-                msol = mdl.solve(TimeLimit = 3600)
-                print("Solution: ")
+                resultfile = open('random_result_{}.txt'.format(len(self.trafficlist)), 'w')
+                resultfile.write("Solving model....")
+                resultfile.write('\r\n')
+                msol = mdl.solve(TimeLimit = 600)
+                resultfile.write("Solution: ")
+                resultfile.write('\r\n')
                 if msol:
-                    print('第一阶段优化完成:')
-                    print('总激活节点数为为:{}'.format(msol.get_objective_values()[0]))
+                    resultfile.write('第一阶段优化完成:')
+                    resultfile.write('\r\n')
+                    active_node_num = []
+                    for m in range(self.getlenforvnf()):
+                        Ym = msol.get_value(ym[m])
+                        if Ym == 1:
+                            active_node_num.append(m)
+                    resultfile.write('总激活vnf数为:{}'.format(len(active_node_num)))
+                    resultfile.write('\r\n')
+                    for m in active_node_num:
+                        resultfile.write('第{}个vnf节点处于激活状态'.format(m))
+                        resultfile.write('\r\n')
                 # path_t = {}
                 # for s,node_s in enumerate(self.nodelist):
                 #     YS = msol.get_value(ys[s])
@@ -536,11 +534,13 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
                             Z = msol.get_value(Z_t_n_s[t][n][s])
                             if Z == 1:
                                 self.Z_t_n_s[t][n] = s
-                                print('业务{}的第{}个vnf：{}部署在服务器{}上。'.format(t,n,vnf,s))
+                                resultfile.write('业务{}的第{}个vnf：{}部署在服务器{}上。'.format(t,n,vnf,s))
+                                resultfile.write('\r\n')
                         for m in range(self.getlenforvnf()):
                             X = msol.get_value(x_t_n_m[t][n][m])
                             if X == 1:
-                                print('业务{}的第{}个vnf：{}使用了第{}个vnf节点'.format(t,n,vnf,m))
+                                resultfile.write('业务{}的第{}个vnf：{}使用了第{}个vnf节点'.format(t,n,vnf,m))
+                                resultfile.write('\r\n')
                 # for t, traffic in enumerate(self.trafficlist):
                 #     path_t[t] = []
                 #     for n1, vnf in enumerate(traffic.vnfsec):
@@ -565,16 +565,17 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
                 #
                 # for t,path in path_t.items():
                 #     print('业务{}的路径路由为{}'.format(t,[node for node in path]))
-                for m in range(self.getlenforvnf()):
-                    Ym = msol.get_value(ym[m])
-                    if Ym == 1:
-                        print('第{}个vnf节点处于激活状态'.format(m))
 
-                print('Sovling end')
+
+                resultfile.write('Sovling end')
+                resultfile.write('\r\n')
+                self.run(resultfile)
+                resultfile.close()
             except Exception as e:
                 print(e)
-            self.run()
-        def run(self):
+
+
+        def run(self,resultfile):
             MDL = CpoModel(name='Step_two')
             W = [1550, 1300]  # 光路可选用波长的集合
             K_short_path = 2
@@ -663,10 +664,13 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
 
 
                 path_t = {}
-                print("Solving model....")
-                Msol = MDL.solve(TimeLimit=36000)
-                print("Solution: ")
+                resultfile.write("Solving model....")
+                resultfile.write('\r\n')
+                Msol = MDL.solve(TimeLimit=36*len(self.trafficlist))
+                resultfile.write("Solution: ")
+                resultfile.write('\r\n')
                 if Msol:
+                    resultfile.write('优化后的总能耗为{}W'.format(Msol.get_objective_values()[0]))
                     for t, traffic in enumerate(self.trafficlist):
                         path_t[t] = []
                         for n1,vnf in enumerate(traffic.vnfsec):
@@ -682,14 +686,17 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
                                             for node in path:
                                                 path_t[t].append(node)
                 for t, path in path_t.items():
-                    print('业务{}的路径路由为{}'.format(t,[node for node in path]))
+                    resultfile.write('业务{}的路径路由为{}'.format(t,[node for node in path]))
+                    resultfile.write('\r\n')
             except Exception as e:
                 print(e)
 
-        def Loadtrafficfile(self):
+        def Loadtrafficfile(self,trafficsize):
             self.trafficlist.clear()
-            traffic_file = open('traffic.txt')
+            traffic_file = open('Traffic_{}.txt'.format(trafficsize))
             for line in traffic_file:
+                if line == '\n':
+                    continue
                 trafficinf = line.split(',')
                 trafficsrcnode = trafficinf[0]
                 trafficdstnode = trafficinf[1]

@@ -5,6 +5,8 @@
 # @Site : 
 # @File : test.py
 # @Software: PyCharm
+import random
+
 INFINITY = float('inf')
 
 
@@ -214,12 +216,59 @@ if __name__ == '__main__':
     paths = yen_ksp(graph2, source, target, 2)
     print(paths)
     print("TOP-10 shortest paths")
-    for path in paths:
-        print("cost:{}\tpath:{}".format(path[1][target], path[0]))
-    a = [1,2,3,4,5]
-    b = a[2]
-    c = {0:1}
-    A = a[1:]
-    print(A)
-    for  i,m in c.items():
-        print(i,m)
+    # Random = [random.randint(0, 1000 * 10) for t in range(10-1)]
+    # Random.sort()
+    # print(Random)
+    # B = Random[:1]
+    # print(B)
+    # for i in range(10-2):
+    #     B.append(Random[i + 1] - Random[i])
+    # B.append(1000*10 - Random[10-2])
+    # print(B)
+    # print(sum(B))
+    # for t in range(10,160,10):
+    #     trafficsize = t
+    #     trafficfile = open('Traffic_{}.txt'.format(trafficsize),'w')
+    #     Random = [random.randint(0,500*trafficsize)]
+    #     for t in range(trafficsize-2):
+    #         Random.append(random.randint(0,500*trafficsize))
+    #         while Random[t+1] == Random[t]:
+    #             Random.pop(t+1)
+    #             Random.append(random.randint(0, 500 * trafficsize))
+    #     Random.sort()
+    #     B = Random[:1]
+    #     for i in range(trafficsize - 2):
+    #         B.append(Random[i + 1] - Random[i])
+    #     B.append(500 * trafficsize - Random[trafficsize - 2])
+    #     print(sum(B))
+    #     for i in range(trafficsize):
+    #         srcnode = random.randint(0,10)
+    #         dstnode = random.randint(0,10)
+    #         bandwidth = B[i]
+    #         while srcnode == dstnode:
+    #             dstnode = random.randint(0,10)
+    #         vnfsec = ['ids','proxy','firewall']
+    #         random.shuffle(vnfsec)
+    #         trafficfile.write('{},{},{},{},{},{}\r\n'.format(srcnode,dstnode,bandwidth,vnfsec[0],vnfsec[1],vnfsec[2]))
+    #     trafficfile.close()
+    f = open('COST239.txt','w')
+    a = {0:{1:1310,2:760,3:390,6:740},1:{0:1310,2:550,4:390,7:450},2:{0:760,1:550,3:660,4:210,5:390},3:{0:390,2:660,6:340,7:1090,9:660},4:{1:390,2:210,5:220,7:300,10:930},5:{2:390,4:220,6:730,7:400,8:350},6:{0:740,3:340,5:730,8:565,9:320},7:{1:450,4:300,5:400,8:600,10:820},8:{5:350,6:565,7:600,9:730,10:320},9:{3:660,6:320,8:730,10:820},10:{4:930,7:820,8:320,9:820}}
+    for key,items in a.items():
+        txt = '添加了节点{},cpu数量为16,流出节点有:'.format(key)
+        for node,distance in items.items():
+            txt += '节点{},距离为{},带宽为{};'.format(node,distance,distance*15)
+        f.write(txt+'\r\n')
+    # f = open('Traffic_10.txt','r')
+    # a = f.readlines()
+    # for size in range(2,16):
+    #     f1 = open('Traffic_{}.txt'.format(size*10),'w')
+    #     for i in range(size):
+    #         for line in a:
+    #             if line == '\n':
+    #                 continue
+    #             f1.write(line)
+
+
+
+    # for size in range(20,160,10):
+

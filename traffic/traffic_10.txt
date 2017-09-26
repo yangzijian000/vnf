@@ -1,0 +1,10 @@
+11,2,981,ids,proxy,firewall
+11,4,2611,ids,proxy,firewall
+8,0,814,firewall,ids,proxy
+0,9,1629,proxy,ids,firewall
+5,10,375,proxy,ids,firewall
+4,1,245,proxy,firewall,ids
+3,11,2176,firewall,proxy,ids
+3,2,412,proxy,ids,firewall
+8,3,380,proxy,firewall,ids
+8,10,377,ids,proxy,firewall
