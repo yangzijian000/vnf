@@ -666,7 +666,7 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
                 path_t = {}
                 resultfile.write("Solving model....")
                 resultfile.write('\r\n')
-                Msol = MDL.solve(TimeLimit=36*len(self.trafficlist))
+                Msol = MDL.solve(TimeLimit=60*len(self.trafficlist))
                 resultfile.write("Solution: ")
                 resultfile.write('\r\n')
                 if Msol:
