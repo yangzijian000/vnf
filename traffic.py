@@ -118,8 +118,10 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
         def startButtonclicked(self):
             self.topofile.close()
             self.initTopo()
-            self.Loadtrafficfile()
-            self.run_cplex_electic()
+            for t in range(10,60,10):
+                trafficsize = t
+                self.Loadtrafficfile(trafficsize)
+                self.run_cplex_electic(trafficsize)
         def loaddataButtonclicked(self):
             self.nodelist.clear()
             topofile = open('新建文本文档.txt')
@@ -166,7 +168,7 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
             for node in self.nodelist:
                 cnt += len(node.pesudoswitchdict)
             return cnt
-        def run_cplex_electic(self):
+        def run_cplex_electic(self,trafficsize):
             self.Vnf2server()
             P = ['in','proxy','firewall','ids','out']
             W = [1550,1300]#光路可选用波长的集合
@@ -228,11 +230,11 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
                         for n2,n1_vnf in enumerate([traffic.vnfsec[n1+1]]):
                             C_t_n1_n2_u_v_k[t][n1].append([])
                             for u,node_u in enumerate(self.nodelist):
-                                C_t_n1_n2_u_v_k[t][n1][n2].append([])
+                                C_t_n1_n2_u_v_k[t][n1][n2].append({})
                                 for v,node_v in enumerate(self.nodelist):
-                                    C_t_n1_n2_u_v_k[t][n1][n2][u].append([])
-                                    for k in range(K_short_path):
-                                        C_t_n1_n2_u_v_k[t][n1][n2][u][v].append([mdl.integer_var(0,1,name='C_t_n1_n2_u_v_k_w_{}_{}_{}_{}_{}_{}_{}'.format(t,n1,n1+1,u,node_v.nodename,k,w)) for w,wave in enumerate(W)])
+                                    if v == u:
+                                        continue
+                                    C_t_n1_n2_u_v_k[t][n1][n2][u][v] = [mdl.integer_var(0,1,name='C_t_n1_n2_u_v_k_{}_{}_{}_{}_{}_{}'.format(t,n1,n1+1,u,node_v.nodename,k)) for k in range(K_short_path)]
             except Exception as e:
                 print(e)
             O_u_v = []
@@ -258,16 +260,34 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
             #                                 W_t_n1_n2_U_V_u_v_w[t][n1][n2][U][V][u].append([mdl.integer_var(0,1,name='W_t_n1_n2_U_V_u_v_w_{}_{}_{}_{}_{}_{}_{}_{}'.format(t,n1,n1+1,U,V,u,node_v,w)) for w,wave in enumerate(W) ])
             # except Exception as e:
             #     print(e)
-
+            try:
+                W_t_n1_n2_u_v_w = []
+                for t,traffic in enumerate(self.trafficlist):
+                    W_t_n1_n2_u_v_w.append([])
+                    for n1, vnf in enumerate(traffic.vnfsec):
+                        if vnf == 'out':
+                            continue
+                        W_t_n1_n2_u_v_w[t].append([])
+                        for n2, n1_vnf in enumerate([traffic.vnfsec[n1 + 1]]):
+                            W_t_n1_n2_u_v_w[t][n1].append([])
+                            for u,node_u in enumerate(self.nodelist):
+                                W_t_n1_n2_u_v_w[t][n1][n2].append([])
+                                for v,node_v in enumerate(node_u.outnodedict.keys()):
+                                    W_t_n1_n2_u_v_w[t][n1][n2][u].append([mdl.integer_var(0,1,name='W_t_n1_n2_u_v_w_{}_{}_{}_{}_{}_{}'.format(t,n1,n1+1,u,v,w)) for w,wave in enumerate(W)])
+            except Exception as e:
+                print(e)
         ###################################################
         #                     构建约束                     #
         ###################################################
         #约束式(1):
-            M = 0
-            for n,node in enumerate(self.nodelist):
-                cpu_constraints = [times(ym[M+m],vnf.cpu_required) for m,vnf in node.pesudoswitchdict.items()]
-                mdl.add(mdl.sum(cpu_constraints)<=node.cpunum)
-                M += len(node.pesudoswitchdict)
+            try:
+                M = 0
+                for n,node in enumerate(self.nodelist):
+                    cpu_constraints = [times(ym[M+m],vnf.cpu_required) for m,vnf in node.pesudoswitchdict.items()]
+                    mdl.add(mdl.sum(cpu_constraints)<=node.cpunum)
+                    M += len(node.pesudoswitchdict)
+            except Exception as e:
+                print(e)
         # 约束式(2):
             try:
                 for m in range(self.getlenforvnf()):
@@ -286,9 +306,9 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
         # 约束式(4):
             try:
                 for m in range(self.getlenforvnf()):
-                    Sum_4 = (x_t_n_m[t][n][m] for t,traffic in enumerate(self.trafficlist) for n, traffic_node in enumerate(traffic.vnfsec))
+                    Sum_4 = [x_t_n_m[t][n][m] for t,traffic in enumerate(self.trafficlist) for n, traffic_node in enumerate(traffic.vnfsec)]
                     mdl.add(ym[m]<=mdl.sum(Sum_4))
-                    mdl.add(mdl.sum(Sum_4)<=ym[m]*INFINITY)
+                    mdl.add(mdl.sum(Sum_4)<=ym[m]*9999999)
             except Exception as e:
                 print(e)
         # 约束式(5):
@@ -320,12 +340,14 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
                         if vnf =='out':
                             continue
                         for n2, n1_vnf in enumerate([traffic.vnfsec[n1 + 1]]):
+                            Sum7 = []
                             for u,node_u in enumerate(self.nodelist):
                                 for v, node_v in enumerate(self.nodelist):
-                                    Sum_9 = [C_t_n1_n2_u_v_k[t][n1][n2][u][v][k][w] for k in range(K_short_path) for w,wave in enumerate(W)]
-                                    mdl.add(mdl.sum(Sum_9)<=1)
-                                    for w,wave in enumerate(W):
-                                        mdl.add(plus(C_t_n1_n2_u_v_k[t][n1][n2][u][v][k][w],C_t_n1_n2_u_v_k[t][n1][n2][v][u][k][w])<=1)
+                                    if v == u:
+                                        continue
+                                    for k in range(K_short_path):
+                                        Sum7.append(C_t_n1_n2_u_v_k[t][n1][n2][u][v][k])
+                            mdl.add(mdl.sum(Sum7) <= 1)
             except Exception as e:
                 print(e)
         #约束式(9):
@@ -338,25 +360,24 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
                             for u, node_u in enumerate(self.nodelist):
                                 for k in range(K_short_path):
                                     for w,wave in enumerate(W):
-                                        Sum_11 = [minus(C_t_n1_n2_u_v_k[t][n1][n2][u][v][k][w],C_t_n1_n2_u_v_k[t][n1][n2][node_v.nodename][node_u.nodename][k][w]) for v, node_v in enumerate(self.nodelist)]
-                                        mdl.add(mdl.sum(Sum_11)==minus(Z_t_n_s[t][n1][u],Z_t_n_s[t][n1+1][u]))
+                                        Sum_9 = [minus(mdl.sum([C_t_n1_n2_u_v_k[t][n1][n2][u][v][k] for k in range(K_short_path)]),mdl.sum([C_t_n1_n2_u_v_k[t][n1][n2][node_v.nodename][node_u.nodename][k] for k in range(K_short_path)])) for v, node_v in enumerate(self.nodelist) if v != u]
+                                        mdl.add(mdl.sum(Sum_9)==minus(Z_t_n_s[t][n1][u],Z_t_n_s[t][n1+1][u]))
             except Exception as e:
                 print(e)
         # 约束式(10):
             try:
                 for w,wave in enumerate(W):
                     for u, node_u in enumerate(self.nodelist):
-                        for v, node_v in enumerate(self.nodelist):
-                            for k in range(K_short_path):
-                                Sum_12 = []
-                                beta_u_v_k_w = self.compute_beta_u_v_k(u,v,k)
-                                for t, traffic in enumerate(self.trafficlist):
-                                    for n1, vnf in enumerate(traffic.vnfsec):
-                                        if vnf == 'out':
-                                            continue
-                                        for n2, n1_vnf in enumerate([traffic.vnfsec[n1 + 1]]):
-                                            Sum_11.append(times(C_t_n1_n2_u_v_k[t][n1][n2][u][v][k][w],int(traffic.bandwidth)))
-                                mdl.add(mdl.sum(Sum_11)<= beta_u_v_k_w)
+                        for v, node_v in enumerate(node_u.outnodedict.keys()):
+                            beta_u_v = int(node_u.outnodedict[node_v][1])
+                            Sum_12 = []
+                            for t, traffic in enumerate(self.trafficlist):
+                                for n1, vnf in enumerate(traffic.vnfsec):
+                                    if vnf == 'out':
+                                        continue
+                                    for n2, n1_vnf in enumerate([traffic.vnfsec[n1 + 1]]):
+                                        Sum_12.append(times(W_t_n1_n2_u_v_w[t][n1][n2][u][v][w],int(traffic.bandwidth)))
+                            mdl.add(mdl.sum(Sum_12)<= beta_u_v)
             except Exception as e:
                 print(e)
         #约束式(11):
@@ -364,19 +385,25 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
                 for u, node_u in enumerate(self.nodelist):
                     for v, node_v in enumerate(node_u.outnodedict.keys()):
                         Sum_12 = []
-                        for U,node_U in enumerate(self.nodelist):
-                            for V,node_V in enumerate(self.nodelist):
-                                if self.link_map_uv(str(U),str(V),str(u),str(node_v)):
-                                    t = 0
-                                    while t < len(self.trafficlist):
-                                        for n1, vnf in enumerate(self.trafficlist[t].vnfsec):
-                                            if vnf == 'out':
+                        for t,traffic in enumerate(self.trafficlist):
+                            for n1, vnf in enumerate(self.trafficlist[t].vnfsec):
+                                if vnf == 'out':
+                                    continue
+                                for n2, n1_vnf in enumerate([self.trafficlist[t].vnfsec[n1 + 1]]):
+                                    Sum11 = []
+                                    for U,node_U in enumerate(self.nodelist):
+                                        for V,node_V in enumerate(self.nodelist):
+                                            if V == U:
                                                 continue
-                                            for n2, n1_vnf in enumerate([self.trafficlist[t].vnfsec[n1 + 1]]):
-                                                for w,wave in enumerate(W):
-                                                    Sum_12.append(C_t_n1_n2_u_v_k[t][n1][n2][U][V][k][w])
-                                    t += 1
-                        mdl.add(O_u_v[u][v]<=mdl.sum(Sum_12)<=O_u_v[u][v]*INFINITY)
+                                            if self.link_map_uv(str(U),str(V),str(u),str(node_v)):
+                                                K = self.link_map_uv(str(U),str(V),str(u),str(node_v))
+                                                for k in K:
+                                                    Sum_12.append(C_t_n1_n2_u_v_k[t][n1][n2][U][V][k])
+                                                    Sum11.append(C_t_n1_n2_u_v_k[t][n1][n2][U][V][k])
+                                    mdl.add(mdl.sum([W_t_n1_n2_u_v_w[t][n1][n2][u][v][w] for w,wave in enumerate(W)]) <= mdl.sum(Sum11) <= mdl.sum([W_t_n1_n2_u_v_w[t][n1][n2][u][v][w] for w,wave in enumerate(W)])*9999999)
+
+                        mdl.add(O_u_v[u][v]<=mdl.sum(Sum_12)<=O_u_v[u][v]*9999999)
+
             except Exception as e:
                 print(e)
         # 约束式(12):
@@ -449,17 +476,10 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
                         if vnf =='out':
                             continue
                         for n2, n1_vnf in enumerate([traffic.vnfsec[n1 + 1]]):
-                            for U,node_U in enumerate(self.nodelist):
-                                for V, node_V in enumerate(self.nodelist):
-                                    for k in range(K_short_path):
-                                        for w,wave in enumerate(W):
-                                            paths = self.K_shortest_path(str(U),str(V))
-                                            if paths:
-                                                link_num = len(paths[k])-1
-                                                Sum_t_B.append(times(times(C_t_n1_n2_u_v_k[t][n1][n2][U][V][k][w],beat_t),link_num))
-                                            else:
-                                                link_num = 0
-                                                Sum_t_B.append(times(times(C_t_n1_n2_u_v_k[t][n1][n2][U][V][k][w], beat_t),link_num))
+                            for u,node_u in enumerate(self.nodelist):
+                                for v, node_v in enumerate(node_u.outnodedict.keys()):
+                                    for w,wave in enumerate(W):
+                                        Sum_t_B.append(W_t_n1_n2_u_v_w[t][n1][n2][u][v][w]*beat_t)
                     Sum_B.append(mdl.sum(Sum_t_B)-beat_t)
                 Sum_O = []
                 for u, node_u in enumerate(self.nodelist):
@@ -472,19 +492,63 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
             # Model solving
             ##############################################################################
             # Solve model
+            resultfile = open('result_{}.txt'.format(trafficsize),'w')
             try:
-                print("Solving model....")
-                msol = mdl.solve(TimeLimit=3600)
-                print("Solution: ")
-                if msol:
-                    msol.print_solution()
-                print('Sovling end')
+                cnt =1
+                while True:
+                    msol = mdl.solve(TimeLimit=50*cnt*len(self.trafficlist))
+                    if msol:
+                        resultfile.write("Solving model....\r\n")
+                        resultfile.write("Solution: \r\n")
+                        resultfile.write('总能耗为{}\r\n'.format(msol.get_objective_values()[0]))
+                        for t, traffic in enumerate(self.trafficlist):
+                            for n, traffic_node in enumerate(traffic.vnfsec):
+                                for s,node_s in enumerate(self.nodelist):
+                                    Z = msol.get_value(Z_t_n_s[t][n][s])
+                                    if Z == 1:
+                                        resultfile.write('业务{}的第{}个服务链节点部署在服务器{}上\r\n'.format(t,n,s))
+                                for m in range(self.getlenforvnf()):
+                                    X = msol.get_value(x_t_n_m[t][n][m])
+                                    if X == 1:
+                                        resultfile.write('业务{}的第{}个服务链节点使用了{}号VNF\r\n'.format(t,n,m))
+                        for m in range(self.getlenforvnf()):
+                            Ym = msol.get_value(ym[m])
+                            if Ym == 1:
+                                resultfile.write('第{}号VNF处于激活状态\r\n'.format(m))
+                        path_t = {}
+                        for t, traffic in enumerate(self.trafficlist):
+                            path_t[t] = []
+                            for n1, vnf in enumerate(traffic.vnfsec):
+                                if vnf == 'out':
+                                    continue
+                                for n2, n1_vnf in enumerate([traffic.vnfsec[n1 + 1]]):
+                                    for u,node_u in enumerate(self.nodelist):
+                                        for v,node_v in enumerate(self.nodelist):
+                                            if v == u:
+                                                continue
+                                            for k in range(K_short_path):
+                                                C = msol.get_value(C_t_n1_n2_u_v_k[t][n1][n2][u][v][k])
+                                                if C == 1:
+                                                    paths = self.K_shortest_path(str(u),str(v))
+                                                    if paths:
+                                                        path = paths[k]
+                                                        for node in path:
+                                                            path_t[t].append(node)
+                        for t, path in path_t.items():
+                            resultfile.write('业务{}的路径路由为{}\r\n'.format(t, [node for node in path]))
+                        break
+                    else:
+                        cnt +=1
+                    resultfile.close()
+                    print('Sovling end')
             except Exception as e:
                 print(e)
-        def Loadtrafficfile(self):
+        def Loadtrafficfile(self,trafficsize):
             self.trafficlist.clear()
-            traffic_file = open('traffic_test.txt')
+            traffic_file = open('Traffic_{}.txt'.format(trafficsize))
             for line in traffic_file:
+                if line == '\n':
+                    continue
                 trafficinf = line.split(',')
                 trafficsrcnode = trafficinf[0]
                 trafficdstnode = trafficinf[1]
@@ -524,7 +588,7 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
                     continue
         def compute_beta_u_v_k(self,u,v,k):
             if u == int(v):
-                return INFINITY
+                return 9999999
             else:
                 Paths = self.K_shortest_path(str(u),str(v))
                 if Paths:
@@ -538,14 +602,16 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
                     return beta_u_v_k
         def link_map_uv(self,U,V,u,v):
             paths = self.K_shortest_path(U,V)
+            K = []
             if paths:
-                for path in paths:
+                for k,path in enumerate(paths):
                     for i in range(len(path)-1):
                         if u == path[i] and v==path[i+1]:
-                            return True
+                            K.append(k)
                         else:
                             continue
-                return False
+                return K
+            return False
         def K_shortest_path(self,srcnode,dstnode):
             Paths = ksp.yen_ksp(self.topoinfdict,srcnode,dstnode,2)
             if Paths:
