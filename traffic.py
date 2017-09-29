@@ -644,7 +644,7 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
         # Sum_B：路由器转发的流量数的总和
 
                 P_t = 35
-                P_I = 0.000015
+                P_I = 0.00015
                 Sum_B = []
                 for t, traffic in enumerate(self.trafficlist):
                     Sum_t_B = []
