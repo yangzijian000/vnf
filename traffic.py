@@ -108,7 +108,7 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
             try:
                 self.topofile.close()
                 self.initTopo()
-                for t in range(10, 160, 10):
+                for t in range(10, 60, 10):
                     trafficsize = t
                     self.Loadtrafficfile(trafficsize)
                     self.run_cplex_electic()
@@ -579,63 +579,47 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
             MDL = CpoModel(name='Step_two')
             W = [1550, 1300]  # 光路可选用波长的集合
             K_short_path = 2
+            B = 1000000
             try:
-                C_t_n1_n2_k = []
-                for t,traffic in enumerate(self.trafficlist):
-                    C_t_n1_n2_k.append([])
-                    for n1,vnf in enumerate(traffic.vnfsec):
-                        if vnf == 'out':
+                C_u_v_k_w = []
+                for u,node_u in enumerate(self.nodelist):
+                    C_u_v_k_w.append({})
+                    for v,node_v in enumerate(self.nodelist):
+                        if v == u:
                             continue
-                        C_t_n1_n2_k[t].append([])
-                        for n2, n1_vnf in enumerate([traffic.vnfsec[n1 + 1]]):
-                            C_t_n1_n2_k[t][n1].append([MDL.integer_var(0,1,name='C_t_n1_n2_k_{}_{}_{}_{}'.format(t,n1,n1+1,k)) for k in range(K_short_path)])
-                O_l = [MDL.integer_var(0,1,name='O_l_{}'.format(l)) for l,link in enumerate(self.link.keys())]
-                W_t_n1_n2_l_w = []
-                for t,traffic in enumerate(self.trafficlist):
-                    W_t_n1_n2_l_w.append([])
-                    for n1,vnf in enumerate(traffic.vnfsec):
-                        if vnf == 'out':
+                        C_u_v_k_w[u][v] = [[MDL.integer_var(0,1,name='C_u_v_k_w_{}_{}_{}_{}'.format(u,v,k,w)) for w,wave in enumerate(W)] for k in range(K_short_path)]
+
+
+
+                for u,node_u in enumerate(self.nodelist):
+                    for v,node_v in enumerate(self.nodelist):
+                        if v == u:
                             continue
-                        W_t_n1_n2_l_w[t].append([])
-                        for n2,n1_vnf in enumerate([traffic.vnfsec[n1 + 1]]):
-                            W_t_n1_n2_l_w[t][n1].append([])
-                            for l,link in enumerate(self.link):
-                                W_t_n1_n2_l_w[t][n1][n2].append([MDL.integer_var(0,1,name='W_t_n1_n2_l_w_{}_{}_{}_{}_{}'.format(t,n1,n2,l,w)) for w,wave in enumerate(W)])
-                                MDL.add(MDL.sum([W_t_n1_n2_l_w[t][n1][n2][l][w] for w,wave in enumerate(W)]) <= 1)
-                for t,traffic in enumerate(self.trafficlist):
-                    for n1,vnf in enumerate(traffic.vnfsec):
-                        if vnf == 'out':
-                            continue
-                        for n2,n1_vnf in enumerate([traffic.vnfsec[n1 + 1]]):
-                            for l,(u,v) in enumerate(self.link.values()):
-                                if self.link_map_uv(str(self.Z_t_n_s[t][n1]),str(self.Z_t_n_s[t][n1+1]),str(u),str(v)):
-                                    K = self.link_map_uv(str(self.Z_t_n_s[t][n1]),str(self.Z_t_n_s[t][n1+1]),str(u),str(v))
-                                    MDL.add(MDL.sum([W_t_n1_n2_l_w[t][n1][n2][l][w] for w,wave in enumerate(W)]) == MDL.sum([C_t_n1_n2_k[t][n1][n2][k] for k in K]))
-                                else:
-                                    MDL.add(MDL.sum([W_t_n1_n2_l_w[t][n1][n2][l][w] for w,wave in enumerate(W)]) == 0)
-                for t,traffic in enumerate(self.trafficlist):
-                    for n1,vnf in enumerate(traffic.vnfsec):
-                        if vnf == 'out':
-                            continue
-                        for n2,n1_vnf in enumerate([traffic.vnfsec[n1 + 1]]):
-                            Sum = MDL.sum([C_t_n1_n2_k[t][n1][n2][k] for k in range(K_short_path)])
-                            MDL.add(Sum == 1)
+                        S = []
+                        for t,traffic in enumerate(self.trafficlist):
+                            beta_t = int(traffic.bandwidth)
+                            for n,vnf in enumerate(traffic.vnfsec):
+                                if vnf == 'out':
+                                    continue
+                                if self.Z_t_n_s[t][n] == u and self.Z_t_n_s[t][n+1] == v:
+                                    S.append(beta_t)
+
+                        MDL.add(MDL.sum(S) <= MDL.sum([C_u_v_k_w[u][v][k][w] for k in range(K_short_path) for w,wave in enumerate(W)])*B)
+
 
                 for l,(u,v) in enumerate(self.link.values()):
-                    Sum_o = []
                     for w,wave in enumerate(W):
-                        beat_u_v = int(self.nodelist[u].outnodedict[str(v)][1])
-                        Sum_b = []
-                        for t,traffic in enumerate(self.trafficlist):
-                            for n in range(len(traffic.vnfsec)-1):
-                                n2 = 0
-                                Sum_b.append(W_t_n1_n2_l_w[t][n][n2][l][w] *int(traffic.bandwidth))
-                                Sum_o.append(W_t_n1_n2_l_w[t][n][n2][l][w])
-                        if Sum_b:
-                            MDL.add(MDL.sum(Sum_b) <= beat_u_v)
-                    if Sum_o:
-                        MDL.add(O_l[l] <= MDL.sum(Sum_o))
-                        MDL.add(MDL.sum(Sum_o) <= O_l[l] * 9999999)
+                        S = []
+                        for U, node_U in enumerate(self.nodelist):
+                            for V, node_V in enumerate(self.nodelist):
+                                if V == U:
+                                    continue
+                                if self.link_map_uv(str(U),str(V),str(u),str(v)):
+                                    K = self.link_map_uv(str(U),str(V),str(u),str(v))
+                                    for k in K:
+                                        S.append(C_u_v_k_w[U][V][k][w])
+                        MDL.add((MDL.sum(S)) <= 1)
+
 
 
         # P_t：路由器进行光-电-光转换的能耗
@@ -645,49 +629,78 @@ class MainWindow(Ui_MainWindow,QtWidgets.QMainWindow):
 
                 P_t = 35
                 P_I = 0.00015
-                Sum_B = []
-                for t, traffic in enumerate(self.trafficlist):
-                    Sum_t_B = []
-                    beat_t = int(traffic.bandwidth)
-                    for n1, vnf in enumerate(traffic.vnfsec):
-                        if vnf =='out':
+                P_O = 0.000015
+                Sum_T = []
+                for u, node_u in enumerate(self.nodelist):
+                    for v, node_v in enumerate(self.nodelist):
+                        if v == u:
                             continue
-                        for n2, n1_vnf in enumerate([traffic.vnfsec[n1 + 1]]):
-                            for l,link in enumerate(self.link):
-                                for w,wave in enumerate(W):
-                                    Sum_t_B.append(W_t_n1_n2_l_w[t][n1][n2][l][w])
-
-                    Sum_B.append((MDL.sum(Sum_t_B) - 1)*beat_t)
-                Sum_O = [O_l[l] for l,link in enumerate(self.link.keys())]
-                obj = 2*P_t*MDL.sum(Sum_O)+P_I*MDL.sum(Sum_B)
-                MDL.add(MDL.minimize(obj))
-
-
-                path_t = {}
-                resultfile.write("Solving model....")
-                resultfile.write('\r\n')
-                Msol = MDL.solve(TimeLimit=60*len(self.trafficlist))
-                resultfile.write("Solution: ")
-                resultfile.write('\r\n')
-                if Msol:
-                    resultfile.write('优化后的总能耗为{}W'.format(Msol.get_objective_values()[0]))
-                    for t, traffic in enumerate(self.trafficlist):
-                        path_t[t] = []
-                        for n1,vnf in enumerate(traffic.vnfsec):
-                            if vnf == 'out':
-                                continue
-                            for n2,n1_vnf in enumerate([traffic.vnfsec[n1 + 1]]):
-                                for k in range(K_short_path):
-                                    C = Msol.get_value(C_t_n1_n2_k[t][n1][n2][k])
-                                    if C == 1:
-                                        paths = self.K_shortest_path(str(self.Z_t_n_s[t][n1]), str(self.Z_t_n_s[t][n1+1]))
-                                        if paths:
-                                            path = paths[k]
-                                            for node in path:
-                                                path_t[t].append(node)
-                for t, path in path_t.items():
-                    resultfile.write('业务{}的路径路由为{}'.format(t,[node for node in path]))
-                    resultfile.write('\r\n')
+                        for k in range(K_short_path):
+                            for w, wave in enumerate(W):
+                                Sum_T.append(C_u_v_k_w[u][v][k][w])
+                Sum_O = []
+                for U, node_U in enumerate(self.nodelist):
+                    for V, node_V in enumerate(self.nodelist):
+                        if V == U:
+                            continue
+                        for k in range(K_short_path):
+                            for w, wave in enumerate(W):
+                                S = []
+                                for l, (u, v) in enumerate(self.link.values()):
+                                    if self.link_map_uv(str(U), str(V), str(u), str(v)):
+                                        K = self.link_map_uv(str(U), str(V), str(u), str(v))
+                                        if k in K:
+                                            S.append(C_u_v_k_w[U][V][k][w])
+                                Sum_O.append(C_u_v_k_w[U][V][k][w] + MDL.sum(S))
+                Sum_I = []
+                for t, traffic in enumerate(self.trafficlist):
+                    beta_t = int(traffic.bandwidth)
+                    S = 0
+                    for n, vnf in enumerate(traffic.vnfsec):
+                        if vnf == 'out':
+                            continue
+                        if self.Z_t_n_s[t][n] != self.Z_t_n_s[t][n+1]:
+                            S += 1
+                    Sum_I.append(S * beta_t)
+                MDL.add(MDL.minimize(2 * P_t * MDL.sum(Sum_T) + P_O * MDL.sum(Sum_O) + P_I * sum(Sum_I)))
+                try:
+                    cnt = 1
+                    while True:
+                        msol = MDL.solve(TimeLimit=500 * cnt * len(self.trafficlist))
+                        if msol.is_soultion_optimal():
+                            resultfile.write("Solving model....\r\n")
+                            resultfile.write("Solution: \r\n")
+                            resultfile.write('总能耗为{}\r\n'.format(msol.get_objective_values()[0]))
+                            path_u_v = {}
+                            for u, node_u in enumerate(self.nodelist):
+                                for v, node_v in enumerate(self.nodelist):
+                                    if v == u:
+                                        continue
+                                    path_u_v[(u, v)] = {}
+                                    C = {}
+                                    for k in range(K_short_path):
+                                        for w, wave in enumerate(W):
+                                            C[(k, w)] = (msol.get_value(C_u_v_k_w[u][v][k][w]))
+                                    for (k, w), c in C.items():
+                                        if c == 1:
+                                            path_u_v[(u, v)][(k, w)] = []
+                                            paths = self.K_shortest_path(str(u), str(v))
+                                            if paths:
+                                                path = paths[k]
+                                                for node in path:
+                                                    path_u_v[(u, v)][(k, w)].append(node)
+                            for (u, v), path_k_w in path_u_v.items():
+                                for (k, w), path in path_k_w.items():
+                                    resultfile.write('光路使用链路{}中的第{}条路径和波长{}映射的物理节点为{}\r\n'.format((u, v), k, W[w],
+                                                                                                  [node for node in
+                                                                                                   path]))
+                            break
+                        else:
+                            cnt += 1
+                    resultfile.close()
+                    print('Sovling end')
+                except Exception as e:
+                    print(e)
             except Exception as e:
                 print(e)
 
